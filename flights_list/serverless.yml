@@ -1,0 +1,20 @@
+service: hello
+frameworkVersion: ">=1.28.0 <2.0.0"
+
+provider:
+  name: aws
+  runtime: go1.x
+
+package:
+  exclude:
+    - ./**
+  include:
+    - ./bin/**
+
+functions:
+  v1:
+    handler: bin/v1
+    events:
+      - http:
+          path: v1
+          method: get
