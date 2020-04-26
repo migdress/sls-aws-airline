@@ -1,14 +1,12 @@
-.PHONY: build clean deploy remove
+.PHONY: deploy_flights remove_flights
 
-build: 
-	make -C flights_list build
+deploy_flights: 
+	make -C flights/list deploy
+	make -C flights/reserve_seat deploy
+	make -C flights/send_reservation_email deploy
 
-clean:
-	make -C flights_list clean
-
-deploy: clean build
-	make -C flights_list deploy
-
-remove: 
-	make -C flights_list remove
+remove_flights: 
+	make -C flights/list remove
+	make -C flights/reserve_seat remove
+	make -C flights/send_reservation_email remove
 

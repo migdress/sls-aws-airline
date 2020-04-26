@@ -11,6 +11,7 @@ provider:
   runtime: go1.x
   environment:
     DYNAMODB_FLIGHTS: ${self:custom.config.dynamodb_flights}
+    NOTIFICATIONS_QUEUE: ${self:custom.config.sqs_notifications}
 
   iamRoleStatements:
     - Effect: Allow
@@ -20,6 +21,12 @@ provider:
       Resource:
         - arn:aws:dynamodb:${self:provider.region}:${self:custom.config.account}:table/${self:custom.config.dynamodb_flights}
         - arn:aws:dynamodb:${self:provider.region}:${self:custom.config.account}:table/${self:custom.config.dynamodb_flights}/index/*
+    - Effect: Allow
+      Action:
+        - sqs:SendMessage
+        - sqs:GetQueueUrl
+      Resource:
+        - arn:aws:sqs:${self:provider.region}:${self:custom.config.account}:${self:custom.config.sqs_notifications}
 
 package:
   exclude:

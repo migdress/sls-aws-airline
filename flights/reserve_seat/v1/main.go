@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/sqs"
 	"github.com/meetupaws/flight_seat_reservation/flights/internal/model"
 	"github.com/meetupaws/flight_seat_reservation/flights/internal/repository"
 	"github.com/meetupaws/flight_seat_reservation/internal"
@@ -23,13 +25,17 @@ type FlightsRepository interface {
 	ReserveSeat(flightID string, seatID string, passengerID string) error
 }
 
+type Enqueuer interface {
+	SendMsg(msg interface{}, queue string) error
+}
+
 type Request struct {
 	FlightID    string `json:"flight_id"`
 	SeatID      string `json:"seat_id"`
 	PassengerID string `json:"passenger_id"`
 }
 
-func Adapter(flightsRepo FlightsRepository) Handler {
+func Adapter(flightsRepo FlightsRepository, enqueuer Enqueuer, notificationsQueue string) Handler {
 	return func(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 		request := Request{}
 		err := json.Unmarshal([]byte(req.Body), &request)
@@ -65,8 +71,33 @@ func Adapter(flightsRepo FlightsRepository) Handler {
 			return internal.Error(http.StatusInternalServerError, err), nil
 		}
 
+		// Send message to queue
+		seat := getSeat(flight, request.SeatID)
+		err = enqueuer.SendMsg(
+			model.QueueMsgReservedSeat{
+				FlightID:        flight.ID,
+				FlightDeparture: flight.Departure,
+				SeatLetter:      seat.Letter,
+				SeatRow:         seat.Row,
+				UserID:          request.PassengerID,
+			},
+			notificationsQueue,
+		)
+		if err != nil {
+			log.Printf("An error ocurred while sending message to queue %v: %v", notificationsQueue, err)
+		}
+
 		return internal.Respond(http.StatusOK, ""), nil
 	}
+}
+
+func getSeat(flight model.Flight, seatID string) model.FlightSeat {
+	for _, s := range flight.Seats {
+		if s.ID == seatID {
+			return s
+		}
+	}
+	return model.FlightSeat{}
 }
 
 func main() {
@@ -74,8 +105,14 @@ func main() {
 	if internal.TrimLines(flightsTable) == "" {
 		panic("DYNAMODB_FLIGHTS is empty")
 	}
+	notificationsQueue := os.Getenv("NOTIFICATIONS_QUEUE")
+	if internal.TrimLines(notificationsQueue) == "" {
+		panic("NOTIFICATIONS_QUEUE is empty")
+	}
 	session := session.New()
 	dynamodbClient := dynamodb.New(session)
 	flightsRepo := repository.NewFlightsRepository(dynamodbClient, flightsTable)
-	lambda.Start(Adapter(flightsRepo))
+	sqsClient := sqs.New(session)
+	enqueuer := internal.NewEnqueuer(sqsClient)
+	lambda.Start(Adapter(flightsRepo, enqueuer, notificationsQueue))
 }

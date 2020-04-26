@@ -30,10 +30,24 @@ func (m *FlightsRepositoryMock) ReserveSeat(flightID string, seatID string, pass
 	return ret.Error(0)
 }
 
+type EnqueuerMock struct {
+	mock.Mock
+}
+
+func (m *EnqueuerMock) SendMsg(msg interface{}, queue string) error {
+	ret := m.Called(msg, queue)
+	return ret.Error(0)
+}
+
 func TestAdapter(t *testing.T) {
 
 	type mocks struct {
 		flightsRepo *FlightsRepositoryMock
+		enqueuer    *EnqueuerMock
+	}
+
+	type args struct {
+		notificationsQueue string
 	}
 
 	tests := []struct {
@@ -41,7 +55,8 @@ func TestAdapter(t *testing.T) {
 		req    events.APIGatewayProxyRequest
 		want   events.APIGatewayProxyResponse
 		mocks  mocks
-		mocker func(m mocks)
+		args   args
+		mocker func(m mocks, a args)
 	}{
 		{
 			name: "Get a 200 status code after succesfully reserve a seat",
@@ -49,7 +64,7 @@ func TestAdapter(t *testing.T) {
 				Body: `{
 						"flight_id": "f1",
 						"seat_id": "s1",
-						"passenger_id": "p1"
+						"passenger_id": "someone@some.com"
 					}`,
 			},
 			want: events.APIGatewayProxyResponse{
@@ -60,14 +75,26 @@ func TestAdapter(t *testing.T) {
 			},
 			mocks: mocks{
 				flightsRepo: &FlightsRepositoryMock{},
+				enqueuer:    &EnqueuerMock{},
 			},
-			mocker: func(m mocks) {
+			args: args{
+				notificationsQueue: "queue",
+			},
+			mocker: func(m mocks, a args) {
 				m.flightsRepo.On(
 					"Find",
 					"f1",
 				).Return(
 					model.Flight{
-						ID: "f1",
+						ID:        "f1",
+						Departure: "2020-05-01T00:00:00+0000",
+						Seats: []model.FlightSeat{
+							{
+								ID:     "s1",
+								Letter: "A",
+								Row:    1,
+							},
+						},
 					},
 					nil,
 				).Once()
@@ -76,7 +103,19 @@ func TestAdapter(t *testing.T) {
 					"ReserveSeat",
 					"f1",
 					"s1",
-					"p1",
+					"someone@some.com",
+				).Return(nil).Once()
+
+				m.enqueuer.On(
+					"SendMsg",
+					model.QueueMsgReservedSeat{
+						FlightID:        "f1",
+						FlightDeparture: "2020-05-01T00:00:00+0000",
+						SeatLetter:      "A",
+						SeatRow:         1,
+						UserID:          "someone@some.com",
+					},
+					a.notificationsQueue,
 				).Return(nil).Once()
 			},
 		},
@@ -84,10 +123,10 @@ func TestAdapter(t *testing.T) {
 			name: "Get a 400 status because request body is malformed",
 			req: events.APIGatewayProxyRequest{
 				Body: `{
-						"flight_id": "f1",
-						"seat_id": "s1",
-						"passenger_id": "p1",
-					}`,
+							"flight_id": "f1",
+							"seat_id": "s1",
+							"passenger_id": "p1",
+						}`,
 			},
 			want: events.APIGatewayProxyResponse{
 				StatusCode: http.StatusBadRequest,
@@ -98,16 +137,17 @@ func TestAdapter(t *testing.T) {
 			},
 			mocks: mocks{
 				flightsRepo: &FlightsRepositoryMock{},
+				enqueuer:    &EnqueuerMock{},
 			},
-			mocker: func(m mocks) {},
+			mocker: func(m mocks, a args) {},
 		},
 		{
 			name: "Get a 400 status because flight_id field is missing",
 			req: events.APIGatewayProxyRequest{
 				Body: `{
-						"seat_id": "s1",
-						"passenger_id": "p1"
-					}`,
+							"seat_id": "s1",
+							"passenger_id": "p1"
+						}`,
 			},
 			want: events.APIGatewayProxyResponse{
 				StatusCode: http.StatusBadRequest,
@@ -118,17 +158,18 @@ func TestAdapter(t *testing.T) {
 			},
 			mocks: mocks{
 				flightsRepo: &FlightsRepositoryMock{},
+				enqueuer:    &EnqueuerMock{},
 			},
-			mocker: func(m mocks) {},
+			mocker: func(m mocks, a args) {},
 		},
 		{
 			name: "Get a 404 status because the flight was not found",
 			req: events.APIGatewayProxyRequest{
 				Body: `{
-					"flight_id": "f1",
-					"seat_id": "s1",
-					"passenger_id": "p1"
-				}`,
+						"flight_id": "f1",
+						"seat_id": "s1",
+						"passenger_id": "p1"
+					}`,
 			},
 			want: events.APIGatewayProxyResponse{
 				StatusCode: http.StatusNotFound,
@@ -141,8 +182,9 @@ func TestAdapter(t *testing.T) {
 			},
 			mocks: mocks{
 				flightsRepo: &FlightsRepositoryMock{},
+				enqueuer:    &EnqueuerMock{},
 			},
-			mocker: func(m mocks) {
+			mocker: func(m mocks, a args) {
 				m.flightsRepo.On(
 					"Find",
 					"f1",
@@ -156,10 +198,10 @@ func TestAdapter(t *testing.T) {
 			name: "Get a 500 status because the repo returned an unexpected error trying to find the flight",
 			req: events.APIGatewayProxyRequest{
 				Body: `{
-					"flight_id": "f1",
-					"seat_id": "s1",
-					"passenger_id": "p1"
-				}`,
+						"flight_id": "f1",
+						"seat_id": "s1",
+						"passenger_id": "p1"
+					}`,
 			},
 			want: events.APIGatewayProxyResponse{
 				StatusCode: http.StatusInternalServerError,
@@ -170,8 +212,9 @@ func TestAdapter(t *testing.T) {
 			},
 			mocks: mocks{
 				flightsRepo: &FlightsRepositoryMock{},
+				enqueuer:    &EnqueuerMock{},
 			},
-			mocker: func(m mocks) {
+			mocker: func(m mocks, a args) {
 				m.flightsRepo.On(
 					"Find",
 					"f1",
@@ -185,10 +228,10 @@ func TestAdapter(t *testing.T) {
 			name: "Get a 500 status because the repository returned an unexpected error after trying to reserve a seat",
 			req: events.APIGatewayProxyRequest{
 				Body: `{
-					"flight_id": "f1",
-					"seat_id": "s1",
-					"passenger_id": "p1"
-				}`,
+						"flight_id": "f1",
+						"seat_id": "s1",
+						"passenger_id": "p1"
+					}`,
 			},
 			want: events.APIGatewayProxyResponse{
 				StatusCode: http.StatusInternalServerError,
@@ -199,8 +242,9 @@ func TestAdapter(t *testing.T) {
 			},
 			mocks: mocks{
 				flightsRepo: &FlightsRepositoryMock{},
+				enqueuer:    &EnqueuerMock{},
 			},
-			mocker: func(m mocks) {
+			mocker: func(m mocks, a args) {
 				m.flightsRepo.On(
 					"Find",
 					"f1",
@@ -224,10 +268,10 @@ func TestAdapter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			tt.mocker(tt.mocks)
+			tt.mocker(tt.mocks, tt.args)
 
 			// Act
-			handler := Adapter(tt.mocks.flightsRepo)
+			handler := Adapter(tt.mocks.flightsRepo, tt.mocks.enqueuer, tt.args.notificationsQueue)
 			got, err := handler(context.Background(), tt.req)
 
 			// Assert

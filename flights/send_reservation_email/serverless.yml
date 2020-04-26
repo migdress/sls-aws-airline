@@ -1,0 +1,31 @@
+service: flights-send-email
+frameworkVersion: ">=1.28.0 <2.0.0"
+
+custom:
+  config: ${file(../../config.${self:provider.stage}.yml):config}
+
+provider:
+  name: aws
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+  runtime: go1.x
+  environment:
+    SENDER_EMAIL: ${self:custom.config.sender_email}
+
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - "ses:SendEmail"
+      Resource: "*"
+
+package:
+  exclude:
+    - ./**
+  include:
+    - ./bin/**
+
+functions:
+  v1:
+    handler: bin/v1
+    events:
+      - sqs: arn:aws:sqs:${self:provider.region}:${self:custom.config.account}:${self:custom.config.sqs_notifications}
