@@ -1,0 +1,36 @@
+service: flights-reserve-seat
+frameworkVersion: ">=1.28.0 <2.0.0"
+
+custom:
+  config: ${file(../../config.${self:provider.stage}.yml):config}
+
+provider:
+  name: aws
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+  runtime: go1.x
+  environment:
+    DYNAMODB_FLIGHTS: ${self:custom.config.dynamodb_flights}
+
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:Query
+        - dynamodb:UpdateItem
+      Resource:
+        - arn:aws:dynamodb:${self:provider.region}:${self:custom.config.account}:table/${self:custom.config.dynamodb_flights}
+        - arn:aws:dynamodb:${self:provider.region}:${self:custom.config.account}:table/${self:custom.config.dynamodb_flights}/index/*
+
+package:
+  exclude:
+    - ./**
+  include:
+    - ./bin/**
+
+functions:
+  v1:
+    handler: bin/v1
+    events:
+      - http:
+          path: v1/reserve
+          method: post

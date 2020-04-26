@@ -7,26 +7,23 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/google/go-cmp/cmp"
-	common "github.com/meetupAWS20191126/try1/_common"
-	"github.com/meetupAWS20191126/try1/_common/models"
+	"github.com/meetupaws/flight_seat_reservation/flights/internal/model"
+	"github.com/meetupaws/flight_seat_reservation/flights/internal/repository"
+	"github.com/meetupaws/flight_seat_reservation/internal"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 type FlightsRepositoryMock struct {
 	mock.Mock
 }
 
-func (m *FlightsRepositoryMock) ListFlightsByDeparture(dateFrom string, dateTo string) ([]models.Flight, error) {
+func (m *FlightsRepositoryMock) ListFlightsByDeparture(dateFrom string, dateTo string) ([]model.Flight, error) {
 	args := m.Called(dateFrom, dateTo)
-	//return m.Called(dateFrom, dateTo).Get(0).([]models.Flight), m.Called.Error(1)
-	return args.Get(0).([]models.Flight), args.Error(1)
+	return args.Get(0).([]model.Flight), args.Error(1)
 }
 
 func TestAdapter(t *testing.T) {
-
-	type args struct {
-		req events.APIGatewayProxyRequest
-	}
 
 	type mocks struct {
 		flightsRepo *FlightsRepositoryMock
@@ -34,19 +31,17 @@ func TestAdapter(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		args   args
 		mocks  mocks
+		req    events.APIGatewayProxyRequest
 		want   events.APIGatewayProxyResponse
-		mocker func(mocks mocks, args args)
+		mocker func(mocks mocks)
 	}{
 		{
 			name: "Return a 200 status code after succesfully list flights by a given departure",
-			args: args{
-				req: events.APIGatewayProxyRequest{
-					PathParameters: map[string]string{
-						"date_from": "2019-11-25",
-						"date_to":   "2019-11-27",
-					},
+			req: events.APIGatewayProxyRequest{
+				PathParameters: map[string]string{
+					"dateFrom": "2019-11-25",
+					"dateTo":   "2019-11-27",
 				},
 			},
 			mocks: mocks{
@@ -57,10 +52,11 @@ func TestAdapter(t *testing.T) {
 				Headers: map[string]string{
 					"Content-Type": "application/json",
 				},
-				Body: common.TrimLines(`[
+				Body: internal.TrimLines(`[
 					{
 						"id":"flight-1",
 						"departure":"2019-11-26T09:25:00+0000",
+						"has_free_seats": true,
 						"seats":[
 							{
 								"id":"seat-1",
@@ -79,6 +75,7 @@ func TestAdapter(t *testing.T) {
 					{
 						"id":"flight-2",
 						"departure":"2019-11-26T09:25:00+0000",
+						"has_free_seats": true,
 						"seats":[
 							{
 								"id":"seat-1",
@@ -96,16 +93,17 @@ func TestAdapter(t *testing.T) {
 					}
 				]`),
 			},
-			mocker: func(m mocks, a args) {
+			mocker: func(m mocks) {
 				m.flightsRepo.On(
 					"ListFlightsByDeparture",
 					"2019-11-25",
 					"2019-11-27",
-				).Return([]models.Flight{
+				).Return([]model.Flight{
 					{
-						ID:        "flight-1",
-						Departure: "2019-11-26T09:25:00+0000",
-						Seats: []models.FlightSeat{
+						ID:           "flight-1",
+						Departure:    "2019-11-26T09:25:00+0000",
+						HasFreeSeats: true,
+						Seats: []model.FlightSeat{
 							{
 								ID:          "seat-1",
 								Letter:      "A",
@@ -121,9 +119,10 @@ func TestAdapter(t *testing.T) {
 						},
 					},
 					{
-						ID:        "flight-2",
-						Departure: "2019-11-26T09:25:00+0000",
-						Seats: []models.FlightSeat{
+						ID:           "flight-2",
+						Departure:    "2019-11-26T09:25:00+0000",
+						HasFreeSeats: true,
+						Seats: []model.FlightSeat{
 							{
 								ID:          "seat-1",
 								Letter:      "B",
@@ -140,15 +139,12 @@ func TestAdapter(t *testing.T) {
 					},
 				}, nil).Once()
 			},
-		},
-		{
+		}, {
 			name: "Return a 500 status code after an error with the repository",
-			args: args{
-				req: events.APIGatewayProxyRequest{
-					PathParameters: map[string]string{
-						"date_from": "2019-11-25",
-						"date_to":   "2019-11-27",
-					},
+			req: events.APIGatewayProxyRequest{
+				PathParameters: map[string]string{
+					"dateFrom": "2019-11-25",
+					"dateTo":   "2019-11-27",
 				},
 			},
 			mocks: mocks{
@@ -159,29 +155,27 @@ func TestAdapter(t *testing.T) {
 				Headers: map[string]string{
 					"Content-Type": "application/json",
 				},
-				Body: common.TrimLines(`{
-					"error":"Some error"
-				}`),
+				Body: internal.TrimLines(`{
+						"errors":["Some error"]
+					}`),
 			},
-			mocker: func(m mocks, a args) {
+			mocker: func(m mocks) {
 				m.flightsRepo.On(
 					"ListFlightsByDeparture",
 					"2019-11-25",
 					"2019-11-27",
 				).Return(
-					[]models.Flight{},
+					[]model.Flight{},
 					errors.New("Some error"),
 				).Once()
 			},
 		},
 		{
 			name: "Return a 404 status code because there are not flights between the given dates",
-			args: args{
-				req: events.APIGatewayProxyRequest{
-					PathParameters: map[string]string{
-						"date_from": "2019-11-25",
-						"date_to":   "2019-11-27",
-					},
+			req: events.APIGatewayProxyRequest{
+				PathParameters: map[string]string{
+					"dateFrom": "2019-11-25",
+					"dateTo":   "2019-11-27",
 				},
 			},
 			mocks: mocks{
@@ -192,36 +186,38 @@ func TestAdapter(t *testing.T) {
 				Headers: map[string]string{
 					"Content-Type": "application/json",
 				},
-				Body: common.TrimLines(`{
-					"error":"No flights found"
-				}`),
+				Body: internal.TrimLines(`{
+						"errors":["no_flights_found"]
+					}`),
 			},
-			mocker: func(m mocks, a args) {
+			mocker: func(m mocks) {
 				m.flightsRepo.On(
 					"ListFlightsByDeparture",
 					"2019-11-25",
 					"2019-11-27",
 				).Return(
-					[]models.Flight{},
-					nil,
+					[]model.Flight{},
+					repository.ErrNoFlightsFound,
 				).Once()
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			tt.mocker(tt.mocks)
 
-			tt.mocker(tt.mocks, tt.args)
+			// Act
 			handler := Adapter(tt.mocks.flightsRepo)
-			got, err := handler(context.Background(), tt.args.req)
+			got, err := handler(context.Background(), tt.req)
 
-			if err != nil {
-				t.Errorf("Error in function Handler. %v\n", err)
-			}
-
+			// Assert
+			require.NoError(t, err)
 			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("Error in function Handler. (-want,+got)\n%s", diff)
+				t.Errorf("Differences: (-want,+got)\n%s", diff)
 			}
+
+			tt.mocks.flightsRepo.AssertExpectations(t)
 		})
 	}
 

@@ -1,9 +1,10 @@
-package models
+package model
 
 type Flight struct {
-	ID        string       `json:"id"`
-	Departure string       `json:"departure"`
-	Seats     []FlightSeat `json:"seats"`
+	ID           string       `json:"id"`
+	Departure    string       `json:"departure"`
+	HasFreeSeats bool         `json:"has_free_seats"`
+	Seats        []FlightSeat `json:"seats"`
 }
 
 type FlightSeat struct {
