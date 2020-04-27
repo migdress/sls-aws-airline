@@ -47,7 +47,7 @@ func DynamodbStart(t *testing.T) (func(), *dynamodb.DynamoDB) {
 
 	err = PortActive("tcp", resource.GetHostPort("8000/tcp"), 10)
 	if err != nil {
-		t.Fatalf("Could not connect to resource: %s\n", resource.GetHostPort("8000/tcp"))
+		t.Fatalf("Could not connect to container: %s\n", resource.GetHostPort("8000/tcp"))
 	}
 
 	dynamodbURL := "http://" + resource.GetHostPort("8000/tcp")
