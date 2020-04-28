@@ -25,6 +25,11 @@ type Mailer interface {
 	SendEmail(subject string, body string, from string, to []string, cc []string) error
 }
 
+var emailTemplate = `
+Hello! %v.
+Your resevartion is confirmed, seat %v%v for the fly with id %v on on %v!
+`
+
 type Request struct {
 	FlightID    string `json:"flight_id"`
 	SeatID      string `json:"seat_id"`
@@ -39,9 +44,7 @@ func Adapter(mailer Mailer, senderEmail string) Handler {
 			return err
 		}
 
-		emailBody := fmt.Sprintf(`
-			Hello! %v.
-			We notify that you seat %v%v for the fly with id %v has been successfully reserved. See you on %v!`,
+		emailBody := fmt.Sprintf(
 			msgBody.UserID,
 			msgBody.SeatRow,
 			msgBody.SeatLetter,
